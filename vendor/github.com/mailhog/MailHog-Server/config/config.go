@@ -53,14 +53,15 @@ type Config struct {
 
 // OutgoingSMTP is an outgoing SMTP server config
 type OutgoingSMTP struct {
-	Name      string
-	Save      bool
-	Email     string
-	Host      string
-	Port      string
-	Username  string
-	Password  string
-	Mechanism string
+	Name         string
+	Save         bool
+	Email        string
+	Host         string
+	Port         string
+	Username     string
+	Password     string
+	Mechanism    string
+	Modifiedfrom string
 }
 
 var cfg = DefaultConfig()

@@ -188,6 +188,10 @@ func (proto *Protocol) ProcessData(line string) (reply *Reply) {
 			proto.logf("Error storing message: %s", err)
 			return ReplyStorageFailed("Unable to store message")
 		}
+
+		// auto release feature
+		AutoRelease(id)
+
 		return ReplyOk("Ok: queued as " + id)
 	}
 

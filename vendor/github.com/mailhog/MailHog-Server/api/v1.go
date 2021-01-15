@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -59,6 +60,7 @@ func createAPIv1(conf *config.Config, r *pat.Router) *APIv1 {
 	r.Path(conf.WebPath + "/api/v1/messages/{id}/mime/part/{part}/download").Methods("OPTIONS").HandlerFunc(apiv1.defaultOptions)
 
 	r.Path(conf.WebPath + "/api/v1/messages/{id}/release").Methods("POST").HandlerFunc(apiv1.release_one)
+	r.Path(conf.WebPath + "/api/v1/messages/{id}/auto-release").Methods("POST").HandlerFunc(apiv1.release_one_auto)
 	r.Path(conf.WebPath + "/api/v1/messages/{id}/release").Methods("OPTIONS").HandlerFunc(apiv1.defaultOptions)
 
 	r.Path(conf.WebPath + "/api/v1/events").Methods("GET").HandlerFunc(apiv1.eventstream)
@@ -251,6 +253,80 @@ func (apiv1 *APIv1) delete_all(w http.ResponseWriter, req *http.Request) {
 	}
 
 	w.WriteHeader(200)
+}
+
+func (apiv1 *APIv1) release_one_auto(w http.ResponseWriter, req *http.Request) {
+
+	var cfg ReleaseConfig
+	// retrieve smtp-config on the json file
+	if c, ok := apiv1.config.OutgoingSMTP["default"]; ok {
+		log.Printf("Using server with name: %s", c.Name)
+		cfg.Name = c.Name
+		cfg.Host = c.Host
+		cfg.Port = c.Port
+		cfg.Username = c.Username
+		cfg.Password = c.Password
+		cfg.Mechanism = c.Mechanism
+		cfg.Modifiedfrom = c.Modifiedfrom
+	} else {
+		log.Printf("Server not found on the json config: %s", cfg.Name)
+		w.WriteHeader(400)
+		return
+	}
+
+	id := req.URL.Query().Get(":id")
+	log.Printf("[APIv1] POST /api/v1/messages/%s/release\n", id)
+
+	apiv1.defaultOptions(w, req)
+
+	w.Header().Add("Content-Type", "text/json")
+	msg, _ := apiv1.config.Storage.Load(id)
+
+	for _, pathTo := range msg.To {
+		emailAddres := fmt.Sprintf("%s@%s", pathTo.Mailbox, pathTo.Domain)
+		// set the email address to the proper recipient
+		cfg.Email = emailAddres
+
+		log.Printf("%+v", cfg)
+		log.Printf("Got message: %s", msg.ID)
+		log.Printf("Releasing email to %s (via %s:%s)", cfg.Email, cfg.Host, cfg.Port)
+
+		bytes := make([]byte, 0)
+		for h, l := range msg.Content.Headers {
+			for _, v := range l {
+				fmt.Println(h, ":", v)
+				if h == "From" {
+					v = cfg.Modifiedfrom
+				}
+				bytes = append(bytes, []byte(h+": "+v+"\r\n")...)
+			}
+		}
+		bytes = append(bytes, []byte("\r\n"+msg.Content.Body)...)
+
+		var auth smtp.Auth
+
+		if len(cfg.Username) > 0 || len(cfg.Password) > 0 {
+			log.Printf("Found username/password, using auth mechanism: [%s]", cfg.Mechanism)
+			switch cfg.Mechanism {
+			case "CRAMMD5":
+				auth = smtp.CRAMMD5Auth(cfg.Username, cfg.Password)
+			case "PLAIN":
+				auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+			default:
+				log.Printf("Error - invalid authentication mechanism")
+				w.WriteHeader(400)
+				return
+			}
+		}
+
+		err := smtp.SendMail(cfg.Host+":"+cfg.Port, auth, "nobody@"+apiv1.config.Hostname, []string{cfg.Email}, bytes)
+		if err != nil {
+			log.Printf("Failed to release message: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		log.Printf("Message released successfully")
+	}
 }
 
 func (apiv1 *APIv1) release_one(w http.ResponseWriter, req *http.Request) {

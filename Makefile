@@ -1,11 +1,11 @@
-VERSION=1.0.0
+VERSION=1.0.0-xalt
 
 all: fmt combined
 
 combined:
 	go install .
 
-release: tag release-deps 
+release: release-deps 
 	gox -ldflags "-X main.version=${VERSION}" -output="build/{{.Dir}}_{{.OS}}_{{.Arch}}" .
 
 fmt:
